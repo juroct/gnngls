@@ -130,9 +130,43 @@ print(f"成本: {solution.cost:.4f}, 可行: {solution.feasible}")
 ## 项目结构
 
 - `gnngls/`: 主要包
+  - `algorithms.py`: TSP算法实现
+  - `models.py`: GNN模型架构
+  - `operators.py`: 局部搜索操作符
+  - `tspdl.py`: TSPDL问题定义
+  - `tspdl_algorithms.py`: TSPDL算法
+  - `tspdl_models.py`: TSPDL的GNN模型
+  - `tspdl_gnn_gls.py`: TSPDL的GNN引导局部搜索
+  - `tspdl_visualization.py`: TSPDL可视化工具
 - `scripts/`: 脚本文件
-- `docs/`: 文档
+  - `generate_tspdl_instances.py`: 生成TSPDL实例
+  - `train_tspdl_gnn.py`: 训练GNN模型
+  - `evaluate_tspdl.py`: 评估算法性能
+  - `tspdl_demo.py`: TSPDL演示
 - `data/`: 数据目录
 - `models/`: 模型存储目录
+- `docs/`: 文档
 
-详见仓库文件。
+## 算法列表
+
+1. **传统算法**
+   - 最近邻（Nearest Neighbor）
+   - 插入法（Insertion）
+   - 局部搜索（Local Search）
+   - 引导局部搜索（Guided Local Search）
+
+2. **GNN模型**
+   - 边属性预测模型（Edge Property Prediction）
+   - 节点属性预测模型（Node Property Prediction）
+
+3. **混合算法**
+   - GNN引导的局部搜索（GNN-Guided Local Search）
+   - 强化学习方法（Reinforcement Learning）
+
+## 外部求解器
+
+项目支持外部求解器如Concorde和LKH。详细安装和使用说明见[docs/external_solvers.md](docs/external_solvers.md)。
+
+## 许可证
+
+本项目使用MIT许可证，详见[LICENSE](LICENSE)文件。
