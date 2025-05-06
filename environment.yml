@@ -1,0 +1,25 @@
+name: gnngls
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch=2.2
+  - torchvision
+  - torchaudio
+  - matplotlib
+  - pandas
+  - tqdm
+  - scikit-learn
+  - tensorboard
+  - networkx=3.2
+  - numpy<2.0
+  - pip
+  - pip:
+    - dgl>=1.1.0
+    - torchdata
+    - concorde-tsp
+    - python-lkh
+    - tsplib95
+    - -e .
