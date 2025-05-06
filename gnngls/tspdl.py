@@ -269,3 +269,293 @@ class TSPDLInstance:
             node_draft_limit = node_draft_limit / demand_sum
 
         return cls(node_xy, node_demand, node_draft_limit, device)
+
+    @classmethod
+    def load_dataset(
+        cls,
+        path: str,
+        offset: int = 0,
+        num_samples: int = 1000,
+        device: torch.device = None
+    ) -> List['TSPDLInstance']:
+        """
+        Load TSPDL instances from a dataset file.
+
+        Args:
+            path: Path to the dataset file
+            offset: Offset in the dataset
+            num_samples: Number of samples to load
+            device: Device to use for tensor operations
+
+        Returns:
+            instances: List of TSPDL instances
+        """
+        assert os.path.splitext(path)[1] == ".pkl", "Unsupported file type (.pkl needed)."
+
+        with open(path, 'rb') as f:
+            data = pickle.load(f)[offset: offset + num_samples]
+
+        instances = []
+        for item in data:
+            node_xy = torch.tensor(item[0], dtype=torch.float32)
+            node_demand = torch.tensor(item[1], dtype=torch.float32)
+            node_draft_limit = torch.tensor(item[2], dtype=torch.float32)
+
+            # Scale to [0,1]
+            demand_sum = node_demand.sum().view(-1)
+            node_demand = node_demand / demand_sum
+            node_draft_limit = node_draft_limit / demand_sum
+
+            instances.append(cls(node_xy, node_demand, node_draft_limit, device))
+
+        return instances
+
+    @staticmethod
+    def save_dataset(instances: List[Tuple], path: str):
+        """
+        Save TSPDL instances to a dataset file.
+
+        Args:
+            instances: List of (node_xy, node_demand, node_draft_limit) tuples
+            path: Path to save the dataset
+        """
+        filedir = os.path.split(path)[0]
+        if not os.path.isdir(filedir):
+            os.makedirs(filedir)
+
+        dataset = []
+        for node_xy, node_demand, node_draft_limit in instances:
+            if isinstance(node_xy, torch.Tensor):
+                node_xy = node_xy.cpu().tolist()
+            if isinstance(node_demand, torch.Tensor):
+                node_demand = node_demand.cpu().tolist()
+            if isinstance(node_draft_limit, torch.Tensor):
+                node_draft_limit = node_draft_limit.cpu().tolist()
+
+            dataset.append((node_xy, node_demand, node_draft_limit))
+
+        with open(path, 'wb') as f:
+            pickle.dump(dataset, f, pickle.HIGHEST_PROTOCOL)
+
+        print(f"Saved TSPDL dataset to {path}")
+
+    @staticmethod
+    def generate_dataset(
+        num_samples: int,
+        problem_size: int,
+        path: str,
+        hardness: str = 'medium',
+        normalized: bool = True
+    ):
+        """
+        Generate and save a TSPDL dataset.
+
+        Args:
+            num_samples: Number of instances to generate
+            problem_size: Number of nodes in each instance
+            path: Path to save the dataset
+            hardness: Difficulty level ('easy', 'medium', 'hard')
+            normalized: Whether to normalize demands and draft limits
+        """
+        instances = []
+        for _ in range(num_samples):
+            instance = TSPDLInstance.generate_random(
+                problem_size, hardness, normalized
+            )
+            instances.append((
+                instance.node_xy,
+                instance.node_demand,
+                instance.node_draft_limit
+            ))
+
+        TSPDLInstance.save_dataset(instances, path)
+
+
+class TSPDLSolution:
+    """
+    Class representing a solution to a TSPDL instance.
+
+    Attributes:
+        instance: TSPDL instance
+        tour: List of node indices representing the tour
+        load: Current load at each step of the tour
+        feasible: Whether the solution is feasible
+        cost: Total cost of the tour
+    """
+
+    def __init__(
+        self,
+        instance: TSPDLInstance,
+        tour: List[int]
+    ):
+        """
+        Initialize a TSPDL solution.
+
+        Args:
+            instance: TSPDL instance
+            tour: List of node indices representing the tour
+        """
+        self.instance = instance
+        self.tour = tour
+        self.load = self._calculate_load()
+        self.feasible = self._check_feasibility()
+        self.cost = self._calculate_cost()
+        self.out_of_draft_limit = self._calculate_out_of_draft_limit()
+
+    def _calculate_load(self) -> List[float]:
+        """
+        Calculate the load at each step of the tour.
+
+        Returns:
+            load: List of loads at each step
+        """
+        load = [0.0]  # Start with zero load
+        current_load = 0.0
+
+        for node in self.tour[1:]:  # Skip depot at the beginning
+            current_load += self.instance.node_demand[node].item()
+            load.append(current_load)
+
+        return load
+
+    def _check_feasibility(self) -> bool:
+        """
+        Check if the solution is feasible.
+
+        Returns:
+            feasible: Whether the solution is feasible
+        """
+        for i in range(1, len(self.tour)):
+            prev_node = self.tour[i-1]
+            node = self.tour[i]
+
+            # Check if load exceeds draft limit
+            if self.load[i-1] > self.instance.node_draft_limit[node].item():
+                return False
+
+        return True
+
+    def _calculate_cost(self) -> float:
+        """
+        Calculate the total cost of the tour.
+
+        Returns:
+            cost: Total cost of the tour
+        """
+        cost = 0.0
+        for i in range(len(self.tour) - 1):
+            node1 = self.tour[i]
+            node2 = self.tour[i+1]
+
+            # Calculate Euclidean distance
+            x1, y1 = self.instance.node_xy[node1]
+            x2, y2 = self.instance.node_xy[node2]
+
+            dist = torch.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+            cost += dist.item()
+
+        return cost
+
+    def _calculate_out_of_draft_limit(self) -> List[float]:
+        """
+        Calculate how much the load exceeds the draft limit at each step.
+
+        Returns:
+            out_of_draft_limit: List of excesses at each step
+        """
+        out_of_draft_limit = []
+
+        for i in range(1, len(self.tour)):
+            node = self.tour[i]
+            draft_limit = self.instance.node_draft_limit[node].item()
+            excess = max(0, self.load[i-1] - draft_limit)
+            out_of_draft_limit.append(excess)
+
+        return out_of_draft_limit
+
+    def total_out_of_draft_limit(self) -> float:
+        """
+        Calculate the total excess over draft limits.
+
+        Returns:
+            total_excess: Total excess over all draft limits
+        """
+        return sum(self.out_of_draft_limit)
+
+    def count_out_of_draft_limit_nodes(self) -> int:
+        """
+        Count the number of nodes where draft limit is exceeded.
+
+        Returns:
+            count: Number of nodes with exceeded draft limit
+        """
+        return sum(1 for excess in self.out_of_draft_limit if excess > 0)
+
+    def to_networkx(self) -> nx.Graph:
+        """
+        Convert the solution to a NetworkX graph.
+
+        Returns:
+            G: NetworkX graph representing the solution
+        """
+        G = self.instance.to_networkx()
+
+        # Add solution attributes
+        for i, node in enumerate(self.tour):
+            G.nodes[node]['visit_order'] = i
+            if i < len(self.load):
+                G.nodes[node]['load'] = self.load[i]
+
+        # Add tour edges
+        for i in range(len(self.tour) - 1):
+            u, v = self.tour[i], self.tour[i+1]
+            G.edges[u, v]['in_tour'] = True
+
+            # Add excess information if applicable
+            if i+1 < len(self.tour) and i < len(self.out_of_draft_limit):
+                G.edges[u, v]['excess'] = self.out_of_draft_limit[i]
+
+        return G
+
+
+def generate_tspdl_dataset(
+    num_samples: int,
+    problem_size: int,
+    path: str,
+    hardness: str = 'medium',
+    normalized: bool = True
+):
+    """
+    Generate and save a TSPDL dataset.
+
+    Args:
+        num_samples: Number of instances to generate
+        problem_size: Number of nodes in each instance
+        path: Path to save the dataset
+        hardness: Difficulty level ('easy', 'medium', 'hard')
+        normalized: Whether to normalize demands and draft limits
+    """
+    TSPDLInstance.generate_dataset(
+        num_samples, problem_size, path, hardness, normalized
+    )
+
+
+def load_tspdl_dataset(
+    path: str,
+    offset: int = 0,
+    num_samples: int = 1000,
+    device: torch.device = None
+) -> List[TSPDLInstance]:
+    """
+    Load TSPDL instances from a dataset file.
+
+    Args:
+        path: Path to the dataset file
+        offset: Offset in the dataset
+        num_samples: Number of samples to load
+        device: Device to use for tensor operations
+
+    Returns:
+        instances: List of TSPDL instances
+    """
+    return TSPDLInstance.load_dataset(path, offset, num_samples, device)
